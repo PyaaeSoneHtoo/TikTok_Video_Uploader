@@ -1,0 +1,21 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Sensitive credentials & tokens
+.env
+tokens.json
+credentials.json
+
+# Logs
+*.log
+_debug_log.txt
+
+# Test / media files
+*.mp4
+*.mov
+*.avi
+*.mkv
