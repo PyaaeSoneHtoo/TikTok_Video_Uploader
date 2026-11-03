@@ -1,120 +1,74 @@
-# TikTok Video Uploader (API v2)
+# TikTok Video Uploader (Browser Automation - No API Required) 📱
 
-A desktop and CLI application to upload and publish videos directly to TikTok using the official **TikTok Content Posting API (v2)**.
-
----
-
-## 🌟 Features
-
-- 🔐 **One-Click OAuth 2.0**: Connects to your TikTok account through a local callback server with automatic token refresh.
-- 🎨 **Modern Dark GUI**: Built with CustomTkinter for an intuitive desktop workflow.
-- 📦 **Direct & Resumable Upload**: Handles single and multi-part chunked video uploads with live progress.
-- ⚙️ **Customizable Post Settings**:
-  - Caption with hashtags
-  - Privacy levels: `PUBLIC_TO_EVERYONE`, `MUTUAL_FOLLOW_FRIENDS`, `FOLLOWER_OF_CREATOR`, `SELF_ONLY`
-  - Toggle Duet, Stitch, and Comment permissions
-- 💻 **CLI Support**: Ready for headless terminal uploads and scheduled automation scripts.
+A modern, automated video publisher for TikTok built with **Playwright** and **CustomTkinter**. Uploads videos directly to TikTok using persistent browser sessions — **no developer account, API keys, or TikTok review required**.
 
 ---
 
-## 🛠️ Prerequisites & TikTok Developer Setup
+## 🌟 Key Features
 
-To upload videos to TikTok via the official API, you need a free TikTok Developer account:
-
-1. **Sign up / Log in** at [TikTok Developer Portal](https://developers.tiktok.com/).
-2. Click **Manage apps** and click **Create an app**.
-3. In the App details, add the **Content Posting API** product.
-4. Set the **Redirect Domain / URI** to:
-   ```
-   http://localhost:5000/callback
-   ```
-5. Request / enable the following scopes:
-   - `user.info.basic`
-   - `video.upload`
-   - `video.publish`
-6. Copy your **Client Key** and **Client Secret**.
+- 🚫 **Zero API Setup Required**:
+  - No need to create a TikTok Developer account or register an app.
+  - No waiting for TikTok app reviews or permissions approval.
+  - Works with any standard personal or creator TikTok account.
+- 🔑 **One-Time Interactive Login**:
+  - Click **"🔑 Log in to TikTok (Browser)"** once to sign in via QR code, Google, phone, or email.
+  - Your login session and cookies are saved permanently in a secure local folder (`browser_profile/`).
+  - You never have to re-login unless you manually log out.
+- 📂 **Single Video & Batch Folder Support**:
+  - Select individual video files or an entire folder of videos.
+  - Automatically processes the queue one by one.
+- ⚙️ **Customizable Post Options**:
+  - Video caption / title
+  - Space-separated hashtags (e.g. `#fyp #viral #anime #trending`)
+  - Privacy levels: `Public`, `Friends`, or `Only Me`
+  - Anti-spam pacing delay between batch posts (e.g. 45–60 seconds)
+  - Headless mode (run silently in background) or visible mode (watch browser upload in real-time)
+- 💻 **Modern Dark GUI + Powerful CLI**.
 
 ---
 
 ## 🚀 Quick Start
 
 ### 1. Launch the Desktop GUI
-Simply double-click:
+Double-click:
 ```cmd
 run.bat
 ```
-*(The batch script will automatically create a `.venv` virtual environment and install dependencies on first run).*
+*(Or double-click `run_tiktok_uploader.bat` in your main WorkSpace directory).*
 
-Or manually:
+### 2. Workflow:
+1. Click **"🔑 Log in to TikTok (Browser)"** — a browser window will open.
+2. Sign in to your TikTok account. Once logged in, close the window.
+3. Select your video file(s) or video folder.
+4. Add your caption and hashtags.
+5. Click **"🚀 Start TikTok Upload"**!
+
+---
+
+## 💻 CLI Commands
+
 ```powershell
-cd TikTok_Video_Uploader
-python -m venv .venv
-.\.venv\Scripts\activate
-pip install -r requirements.txt
-python gui_app.py
-```
+# 1. Log in to TikTok (opens browser window to save session)
+python cli.py login
 
-### 2. Connect Your Account
-1. Paste your **Client Key** and **Client Secret** into the app.
-2. Click **💾 Save Credentials**.
-3. Click **🔗 Connect TikTok Account** — your default browser will open to TikTok's authorization screen.
-4. Authorize the application. The local listener will catch the token and display `Connected as @username`.
+# 2. Check login status
+python cli.py status
 
-### 3. Upload a Video
-1. Click **Browse Video...** and choose an `.mp4` or `.mov` file.
-2. Add your title/caption and hashtags.
-3. Choose your privacy setting and permissions.
-4. Click **🚀 Upload Video to TikTok**.
+# 3. Upload a single video
+python cli.py upload --video "C:\videos\clip.mp4" --caption "My Video" --tags "#fyp #viral"
 
----
+# 4. Upload an entire folder of videos with 45s delay between posts
+python cli.py upload --folder "C:\videos" --tags "#anime #fyp" --delay 45
 
-## 💻 CLI Usage
-
-You can also use the tool entirely from the terminal:
-
-### Connect Account:
-```bash
-python cli.py auth
-```
-
-### Check Logged-in User:
-```bash
-python cli.py whoami
-```
-
-### Upload a Video:
-```bash
-python cli.py upload --video "path/to/my_video.mp4" --title "Amazing moment #fyp #viral" --privacy PUBLIC_TO_EVERYONE
-```
-
-### Check Publish Status:
-```bash
-python cli.py status --publish-id "v_pub_xxxxxxxx"
+# 5. Run in background (headless)
+python cli.py upload --video "C:\videos\clip.mp4" --headless
 ```
 
 ---
 
-## 📁 File Structure
+## 📦 Requirements & Tech Stack
 
-```
-TikTok_Video_Uploader/
-├── tiktok_api.py         # Core TikTok Content Posting API client
-├── auth_server.py        # Local OAuth callback listener
-├── gui_app.py            # CustomTkinter graphical desktop interface
-├── cli.py                # Command-line interface
-├── run_gui.bat           # Launcher script for Windows
-├── run.bat               # Quick alias launcher
-├── requirements.txt      # Python dependencies
-├── .env.example          # Template for credentials
-└── README.md             # Documentation
-```
-
----
-
-## 📌 Video Format Requirements
-- **Container**: MP4 or MOV
-- **Video Codec**: H.264
-- **Audio Codec**: AAC
-- **Duration**: Between 3 seconds and 10 minutes
-- **Aspect Ratio**: 9:16 (vertical recommended), 16:9, or 1:1
-- **File Size**: Up to 4 GB
+- Python 3.10+
+- [Playwright](https://playwright.dev/python/) with Chromium
+- [CustomTkinter](https://customtkinter.tomschimansky.com/) (modern UI)
+- Pillow

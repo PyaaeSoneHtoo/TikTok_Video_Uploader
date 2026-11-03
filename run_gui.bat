@@ -12,6 +12,8 @@ if not exist ".venv\Scripts\python.exe" (
     python -m venv .venv
     echo [Installing requirements...]
     .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+    echo [Installing Chromium for Playwright automation...]
+    .\.venv\Scripts\python.exe -m playwright install chromium
     echo.
 )
 

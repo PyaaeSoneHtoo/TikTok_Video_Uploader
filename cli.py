@@ -1,145 +1,135 @@
 """
-TikTok Video Uploader CLI
-Provides terminal commands for authenticating and publishing videos.
+TikTok Video Uploader CLI - Browser Automation (No Developer API Required)
+Uploads videos directly to TikTok using Playwright browser automation.
 """
 
 import os
 import sys
+
+# Ensure UTF-8 stdout on Windows console
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+import time
 import argparse
-import webbrowser
-from dotenv import load_dotenv
 
-from tiktok_api import TikTokAPI, TikTokAPIError
-from auth_server import wait_for_oauth_code
+from browser_uploader import (
+    open_interactive_login,
+    check_is_logged_in,
+    upload_video_via_browser
+)
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-load_dotenv(os.path.join(BASE_DIR, ".env"))
+SUPPORTED_EXTENSIONS = (".mp4", ".mov", ".webm", ".avi", ".mkv")
 
-def get_api() -> TikTokAPI:
-    client_key = os.getenv("TIKTOK_CLIENT_KEY")
-    client_secret = os.getenv("TIKTOK_CLIENT_SECRET")
-    redirect_uri = os.getenv("TIKTOK_REDIRECT_URI", "http://localhost:5000/callback")
-
-    if not client_key or not client_secret:
-        print("❌ Error: TIKTOK_CLIENT_KEY or TIKTOK_CLIENT_SECRET not found.")
-        print("Please set them in .env or run the GUI to configure them.")
-        sys.exit(1)
-
-    return TikTokAPI(
-        client_key=client_key,
-        client_secret=client_secret,
-        redirect_uri=redirect_uri,
-        tokens_file=os.path.join(BASE_DIR, "tokens.json")
-    )
-
-def handle_auth(args):
-    api = get_api()
-    print("Initiating TikTok OAuth authorization...")
-    auth_url, state = api.get_authorization_url()
-    print(f"Opening browser at:\n{auth_url}\n")
-    webbrowser.open(auth_url)
-
-    print("Waiting for callback on http://localhost:5000/callback...")
-    code, returned_state, error = wait_for_oauth_code(port=5000)
-
-    if error:
-        print(f"❌ Authorization error: {error}")
-        return
-    if not code:
-        print("❌ Authorization timed out or was cancelled.")
-        return
-
-    print("Exchanging code for tokens...")
-    api.exchange_code_for_token(code)
-    try:
-        user = api.get_user_info()
-        print(f"✅ Successfully connected to TikTok as @{user.get('display_name', 'Creator')}!")
-    except Exception as e:
-        print(f"✅ Authentication succeeded, but could not fetch profile info: {e}")
-
-def handle_whoami(args):
-    api = get_api()
-    try:
-        user = api.get_user_info()
-        print(f"Logged in as: {user.get('display_name')} (OpenID: {user.get('open_id')})")
-    except Exception as e:
-        print(f"❌ Not logged in or token expired: {e}")
-
-def handle_upload(args):
-    api = get_api()
-    if not os.path.isfile(args.video):
-        print(f"❌ Video file does not exist: {args.video}")
-        return
-
-    print(f"Starting upload for: {args.video}")
-    print(f"Title: {args.title}")
-    print(f"Privacy: {args.privacy}")
-
-    def progress_cb(pct, uploaded, total):
-        up_mb = uploaded / (1024 * 1024)
-        tot_mb = total / (1024 * 1024)
-        print(f"\rUploading: {pct:5.1f}% [{up_mb:6.1f}MB / {tot_mb:6.1f}MB]", end="", flush=True)
-
-    def status_cb(msg):
-        print(f"\n[Status] {msg}")
-
-    try:
-        res = api.upload_and_publish(
-            video_path=args.video,
-            title=args.title,
-            privacy_level=args.privacy,
-            disable_duet=args.disable_duet,
-            disable_stitch=args.disable_stitch,
-            disable_comment=args.disable_comment,
-            progress_callback=progress_cb,
-            status_callback=status_cb
-        )
-        print(f"\n✅ Video upload complete! Publish ID: {res.get('publish_id')}")
-    except Exception as e:
-        print(f"\n❌ Upload failed: {e}")
-
-def handle_status(args):
-    api = get_api()
-    try:
-        status_data = api.fetch_publish_status(args.publish_id)
-        print(f"Status for Publish ID {args.publish_id}:")
-        print(f"  Status: {status_data.get('status')}")
-        if status_data.get("fail_reason"):
-            print(f"  Reason: {status_data.get('fail_reason')}")
-    except Exception as e:
-        print(f"❌ Error checking status: {e}")
 
 def main():
-    parser = argparse.ArgumentParser(description="TikTok Video Uploader CLI")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    parser = argparse.ArgumentParser(description="TikTok Video Uploader (Browser Automation - No API)")
+    subparsers = parser.add_subparsers(dest="command")
 
-    # auth
-    parser_auth = subparsers.add_parser("auth", help="Connect TikTok account via OAuth")
-    parser_auth.set_defaults(func=handle_auth)
+    # Command: login
+    subparsers.add_parser("login", help="Opens browser to log into your TikTok account and save session")
 
-    # whoami
-    parser_whoami = subparsers.add_parser("whoami", help="Display authenticated TikTok user")
-    parser_whoami.set_defaults(func=handle_whoami)
+    # Command: status
+    subparsers.add_parser("status", help="Checks if a valid TikTok login session exists")
 
-    # upload
-    parser_upload = subparsers.add_parser("upload", help="Upload and publish a video")
-    parser_upload.add_argument("--video", "-v", required=True, help="Path to video file (.mp4, .mov)")
-    parser_upload.add_argument("--title", "-t", default="Uploaded via TikTok API #fyp", help="Video title & hashtags")
-    parser_upload.add_argument("--privacy", "-p", default="PUBLIC_TO_EVERYONE",
-                               choices=["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "SELF_ONLY"],
-                               help="Video privacy level")
-    parser_upload.add_argument("--disable-duet", action="store_true", help="Disable Duet")
-    parser_upload.add_argument("--disable-stitch", action="store_true", help="Disable Stitch")
-    parser_upload.add_argument("--disable-comment", action="store_true", help="Disable Comments")
-    parser_upload.set_defaults(func=handle_upload)
-
-    # status
-    parser_status = subparsers.add_parser("status", help="Check status of a publish ID")
-    parser_status.add_argument("--publish-id", "-id", required=True, help="Publish ID returned by init/upload")
-    parser_status.set_defaults(func=handle_status)
+    # Command: upload
+    upload_parser = subparsers.add_parser("upload", help="Uploads a single video or a batch folder to TikTok")
+    upload_parser.add_argument("--video", "-v", default=None, help="Path to single video file")
+    upload_parser.add_argument("--folder", "-f", default=None, help="Path to folder containing videos")
+    upload_parser.add_argument("--caption", "-c", default="", help="Video caption/title")
+    upload_parser.add_argument("--tags", "-t", default="", help="Hashtags (space separated, e.g. '#fyp #viral')")
+    upload_parser.add_argument("--privacy", "-p", choices=["Public", "Friends", "Only Me"], default="Public",
+                               help="Privacy level (default: Public)")
+    upload_parser.add_argument("--delay", "-d", type=int, default=45,
+                               help="Delay in seconds between batch video uploads (default: 45s)")
+    upload_parser.add_argument("--headless", action="store_true",
+                               help="Run browser in background without showing window")
 
     args = parser.parse_args()
-    args.func(args)
+
+    if args.command == "login":
+        print("🔑 Opening browser window for TikTok login...")
+        ok = open_interactive_login(status_callback=lambda msg: print(f"ℹ️ {msg}"))
+        if ok:
+            print("✅ Login successful! Your TikTok session is saved permanently.")
+        else:
+            print("❌ Login was not completed or timed out.")
+
+    elif args.command == "status":
+        logged_in = check_is_logged_in()
+        if logged_in:
+            print("🟢 Status: Logged in (TikTok session is active)")
+        else:
+            print("🔴 Status: Not logged in. Run 'python cli.py login' or use the GUI to log in.")
+
+    elif args.command == "upload":
+        if not check_is_logged_in():
+            print("❌ Error: You are not logged into TikTok.")
+            print("   Run: python cli.py login")
+            sys.exit(1)
+
+        # Collect files
+        target_files = []
+        if args.video:
+            if not os.path.isfile(args.video):
+                print(f"❌ Error: Video file not found: {args.video}")
+                sys.exit(1)
+            target_files.append(args.video)
+        elif args.folder:
+            if not os.path.isdir(args.folder):
+                print(f"❌ Error: Folder not found: {args.folder}")
+                sys.exit(1)
+            target_files = [
+                os.path.join(args.folder, f)
+                for f in os.listdir(args.folder)
+                if os.path.splitext(f)[1].lower() in SUPPORTED_EXTENSIONS
+            ]
+            if not target_files:
+                print(f"❌ Error: No video files found in {args.folder}")
+                sys.exit(1)
+        else:
+            print("❌ Error: Specify either --video or --folder to upload.")
+            sys.exit(1)
+
+        tags = [t.strip() for t in args.tags.split() if t.strip()]
+
+        print(f"🚀 Found {len(target_files)} video(s) to upload.")
+        print(f"🔒 Privacy: {args.privacy}")
+        print(f"🏷️ Hashtags: {' '.join(tags) if tags else '(None)'}")
+        print(f"⏱️ Delay between posts: {args.delay}s")
+        print("-" * 60)
+
+        for idx, vpath in enumerate(target_files, 1):
+            vname = os.path.basename(vpath)
+            print(f"[{idx}/{len(target_files)}] Uploading {vname}...", flush=True)
+
+            try:
+                res = upload_video_via_browser(
+                    video_path=vpath,
+                    caption=args.caption,
+                    hashtags=tags,
+                    privacy=args.privacy,
+                    headless=args.headless,
+                    status_callback=lambda msg: print(f"   ℹ️ {msg}")
+                )
+                if res.get("success"):
+                    print(f"✅ Successfully posted {vname}!")
+            except Exception as e:
+                print(f"❌ Failed to upload {vname}: {e}")
+
+            if idx < len(target_files):
+                print(f"⏳ Waiting {args.delay}s before next upload...")
+                time.sleep(args.delay)
+
+        print("-" * 60)
+        print("🎉 Batch upload process finished!")
+
+    else:
+        parser.print_help()
+
 
 if __name__ == "__main__":
     main()

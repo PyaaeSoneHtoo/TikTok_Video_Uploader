@@ -9,6 +9,8 @@ __pycache__/
 .env
 tokens.json
 credentials.json
+cookies.json
+browser_profile/
 
 # Logs
 *.log
