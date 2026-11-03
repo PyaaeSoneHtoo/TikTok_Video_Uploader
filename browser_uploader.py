@@ -31,6 +31,45 @@ def get_profile_dir() -> str:
     return PROFILE_DIR
 
 
+def dismiss_popups(page: Page):
+    """
+    Dismisses onboarding tours, react-joyride popups, cookie consent banners,
+    and dialog overlays that intercept clicks on TikTok Studio.
+    """
+    try:
+        # 1. Click common tour dismiss buttons
+        dismiss_selectors = [
+            'button:has-text("Got it")',
+            'button:has-text("Skip")',
+            'button:has-text("Next")',
+            'button:has-text("Close")',
+            'button:has-text("Dismiss")',
+            '[aria-label="Close"]',
+            '.react-joyride__tooltip button',
+            '.joyride-tooltip__close'
+        ]
+        for sel in dismiss_selectors:
+            try:
+                locator = page.locator(sel)
+                for i in range(min(locator.count(), 3)):
+                    btn = locator.nth(i)
+                    if btn.is_visible():
+                        btn.click(timeout=1000)
+                        time.sleep(0.3)
+            except Exception:
+                pass
+
+        # 2. Force remove joyride overlay portals and modal masks via JavaScript
+        page.evaluate("""() => {
+            const overlays = document.querySelectorAll(
+                '#react-joyride-portal, .react-joyride__overlay, .modal-mask, [data-test-id="overlay"], .tiktok-modal__mask'
+            );
+            overlays.forEach(el => el.remove());
+        }""")
+    except Exception:
+        pass
+
+
 def open_interactive_login(status_callback: Optional[Callable[[str], None]] = None) -> bool:
     """
     Launches a visible Chromium window where the user can log into their TikTok account
@@ -74,7 +113,6 @@ def open_interactive_login(status_callback: Optional[Callable[[str], None]] = No
             time.sleep(2)
             try:
                 curr_url = page.url
-                # If navigated to home or creator upload or has session cookies
                 if "login" not in curr_url.lower() and ("tiktok.com" in curr_url):
                     cookies = context.cookies()
                     session_names = [c["name"] for c in cookies]
@@ -82,13 +120,11 @@ def open_interactive_login(status_callback: Optional[Callable[[str], None]] = No
                         logged_in = True
                         if status_callback:
                             status_callback("Login detected! Saving session credentials...")
-                        # Save cookies backup as well
                         with open(COOKIES_FILE, "w", encoding="utf-8") as f:
                             json.dump(cookies, f, indent=2)
                         time.sleep(3)
                         break
             except Exception:
-                # Browser might be closed by user
                 break
 
         # Check final cookie state
@@ -174,7 +210,6 @@ def upload_video_via_browser(
         if status_callback:
             status_callback("Navigating to TikTok Studio Upload...")
 
-        # Try tiktokstudio upload URL first, fallback to creator-center
         target_url = TIKTOK_UPLOAD_URL
         page.goto(target_url, timeout=60000, wait_until="domcontentloaded")
         time.sleep(3)
@@ -184,15 +219,17 @@ def upload_video_via_browser(
             context.close()
             raise RuntimeError("You are not logged into TikTok. Please click '🔑 Log In to TikTok' first.")
 
-        # If page redirected or needs fallback
+        # Fallback to creator-center if needed
         if "tiktok.com" not in page.url:
             page.goto(TIKTOK_CREATOR_URL, timeout=60000, wait_until="domcontentloaded")
             time.sleep(3)
 
+        dismiss_popups(page)
+
         if status_callback:
             status_callback("Selecting video file for upload...")
 
-        # Locate file input: might be directly on page or inside an iframe
+        # Locate file input
         file_input = None
         selectors = [
             'input[type="file"][accept*="video"]',
@@ -200,7 +237,6 @@ def upload_video_via_browser(
             'iframe >> input[type="file"]'
         ]
 
-        # Wait for file input to attach
         for _ in range(15):
             for sel in selectors:
                 try:
@@ -215,7 +251,6 @@ def upload_video_via_browser(
             time.sleep(1)
 
         if not file_input:
-            # Try finding through page frames
             for frame in page.frames:
                 try:
                     el = frame.locator('input[type="file"]').first
@@ -229,42 +264,19 @@ def upload_video_via_browser(
             context.close()
             raise RuntimeError("Could not find video file upload dropzone on TikTok upload page.")
 
-        # Set video file
         abs_video_path = os.path.abspath(video_path)
         file_input.set_input_files(abs_video_path)
 
         if status_callback:
-            status_callback("Video file injected. Waiting for upload to process...")
+            status_callback("Video file injected. Uploading & entering details...")
 
-        # Wait for video upload processing (preview or upload bar reaches 100%)
-        # Check for upload progress or caption editor activation
-        uploaded = False
-        start_wait = time.time()
-        max_upload_time = 300  # 5 minutes for large video uploads
+        time.sleep(2)
+        dismiss_popups(page)
 
-        while time.time() - start_wait < max_upload_time:
-            time.sleep(2)
-            try:
-                # Look for upload complete indicators
-                text_content = page.content()
-                if "Uploaded" in text_content or "100%" in text_content or "Preview" in text_content:
-                    uploaded = True
-                    break
-                # Or check if video element or stage-preview appeared
-                if page.locator("video").count() > 0 or page.locator(".preview-panel").count() > 0:
-                    uploaded = True
-                    break
-                # Or check if caption input is editable and active
-                if page.locator('div[contenteditable="true"]').count() > 0:
-                    uploaded = True
-                    break
-            except Exception:
-                pass
-
+        # Enter caption
         if status_callback:
             status_callback("Entering title and hashtags...")
 
-        # Enter caption
         try:
             caption_selectors = [
                 'div[contenteditable="true"]',
@@ -282,9 +294,8 @@ def upload_video_via_browser(
                     break
 
             if caption_el:
-                caption_el.click()
+                caption_el.click(timeout=5000)
                 time.sleep(0.5)
-                # Select all and delete previous text
                 page.keyboard.press("Control+A")
                 page.keyboard.press("Backspace")
                 time.sleep(0.5)
@@ -296,59 +307,114 @@ def upload_video_via_browser(
         # Set Privacy if dropdown is accessible
         if privacy in ["Friends", "Only Me", "Private"]:
             try:
-                # Click privacy select
                 priv_btn = page.locator('div:has-text("Who can watch this video") + div').first
                 if priv_btn.count() > 0:
-                    priv_btn.click()
+                    priv_btn.click(timeout=3000)
                     time.sleep(0.5)
                     target_priv = "Only me" if privacy in ["Only Me", "Private"] else "Friends"
-                    page.locator(f'div[role="option"]:has-text("{target_priv}")').first.click()
+                    page.locator(f'div[role="option"]:has-text("{target_priv}")').first.click(timeout=3000)
             except Exception as e:
                 logger.warning(f"Could not set privacy: {e}")
+
+        dismiss_popups(page)
+
+        if status_callback:
+            status_callback("Waiting for video upload to process completely (100%)...")
+
+        # Wait for video upload to finish processing
+        # TikTok displays progress or activates the submit button when finished
+        start_wait = time.time()
+        max_upload_time = 360  # 6 minutes max
+
+        # Helper to locate the real submit Post button (NOT the sidebar navigation item)
+        def find_real_post_button():
+            dismiss_popups(page)
+            # Try specific action-bar / footer selectors first
+            specific_selectors = [
+                'button[data-e2e="post_video_button"]',
+                'div[class*="btn-post"] button',
+                'div[class*="footer"] button:has-text("Post")',
+                'div[class*="bottom"] button:has-text("Post")',
+                'button.btn-post',
+                'button:has-text("Publish"):not([data-tt*="Sidebar"])',
+                'button:has-text("Post"):not([data-tt*="Sidebar"])'
+            ]
+            for s in specific_selectors:
+                loc = page.locator(s)
+                for idx in range(loc.count()):
+                    btn = loc.nth(idx)
+                    # Verify it's not a sidebar item
+                    data_tt = btn.get_attribute("data-tt") or ""
+                    cls = btn.get_attribute("class") or ""
+                    if "sidebar" not in data_tt.lower() and "sidebar" not in cls.lower():
+                        return btn
+
+            # Fallback: scan all buttons containing "Post" and take the last non-sidebar button
+            all_btns = page.locator('button:has-text("Post")')
+            for idx in reversed(range(all_btns.count())):
+                btn = all_btns.nth(idx)
+                data_tt = btn.get_attribute("data-tt") or ""
+                cls = btn.get_attribute("class") or ""
+                if "sidebar" not in data_tt.lower() and "sidebar" not in cls.lower():
+                    return btn
+
+            return None
+
+        # Wait until upload is complete and post button is ready
+        target_post_btn = None
+        while time.time() - start_wait < max_upload_time:
+            time.sleep(2)
+            dismiss_popups(page)
+
+            # Scroll down to ensure upload progress and buttons are in view
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+
+            # Check if post button is found and enabled
+            btn = find_real_post_button()
+            if btn and btn.is_enabled():
+                target_post_btn = btn
+                break
+
+            # Or check page text for 100% or Uploaded
+            try:
+                page_text = page.content()
+                if "Uploaded" in page_text or "100%" in page_text or "Upload complete" in page_text:
+                    if btn:
+                        target_post_btn = btn
+                        break
+            except Exception:
+                pass
+
+        if not target_post_btn:
+            target_post_btn = find_real_post_button()
+
+        if not target_post_btn:
+            context.close()
+            raise RuntimeError("Could not find the submit 'Post' button on TikTok Studio.")
 
         if status_callback:
             status_callback("Submitting post to TikTok...")
 
-        # Find and click Post button
-        post_btn = None
-        post_selectors = [
-            'button:has-text("Post")',
-            'button:has-text("Publish")',
-            'button[data-e2e="post_video_button"]',
-            '.btn-post'
-        ]
+        dismiss_popups(page)
+        target_post_btn.scroll_into_view_if_needed()
+        time.sleep(1)
 
-        for sel in post_selectors:
-            el = page.locator(sel).first
-            if el.count() > 0 and el.is_enabled():
-                post_btn = el
-                break
-
-        if not post_btn:
-            # Scroll down to ensure button is visible
-            page.mouse.wheel(0, 500)
-            time.sleep(1)
-            for sel in post_selectors:
-                el = page.locator(sel).first
-                if el.count() > 0 and el.is_enabled():
-                    post_btn = el
-                    break
-
-        if not post_btn:
-            context.close()
-            raise RuntimeError("Post button not found or not enabled on upload page.")
-
-        # Click Post
-        post_btn.click()
+        # Click the Post button using force=True to bypass any transparent overlays
+        try:
+            target_post_btn.click(force=True, timeout=10000)
+        except Exception:
+            # Fallback: trigger click via JavaScript directly on the DOM element
+            page.evaluate("el => el.click()", target_post_btn.element_handle())
 
         if status_callback:
             status_callback("Waiting for TikTok post confirmation...")
 
-        # Wait for success dialog or redirection
+        # Wait for confirmation of successful upload
         post_confirmed = False
         confirm_start = time.time()
-        while time.time() - confirm_start < 45:
+        while time.time() - confirm_start < 60:
             time.sleep(2)
+            dismiss_popups(page)
             try:
                 page_text = page.content()
                 if (
@@ -357,6 +423,7 @@ def upload_video_via_browser(
                     or "Manage your posts" in page_text
                     or "Upload another video" in page_text
                     or "Post another video" in page_text
+                    or "uploaded to TikTok" in page_text
                 ):
                     post_confirmed = True
                     break
