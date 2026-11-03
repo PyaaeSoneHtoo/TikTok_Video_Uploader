@@ -152,9 +152,10 @@ def upload_video_via_browser(
             full_caption = f"{full_caption} {tags_str}"
 
     user_data_dir = get_profile_dir()
+    is_headless = bool(headless)
 
     if status_callback:
-        status_callback(f"Launching browser ({'Headless' if headless else 'Visible'})...")
+        status_callback(f"Launching browser ({'Headless' if is_headless else 'Visible'})...")
 
     with sync_playwright() as p:
         args = [
@@ -163,7 +164,7 @@ def upload_video_via_browser(
         ]
         context = p.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
-            headless=headless,
+            headless=is_headless,
             args=args,
             no_viewport=True
         )

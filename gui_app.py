@@ -368,7 +368,7 @@ class TikTokUploaderApp(ctk.CTk):
         tags_raw = self.hashtags_entry.get().strip()
         tags = [t.strip() for t in tags_raw.split() if t.strip()]
         privacy = self.privacy_var.get()
-        headless = self.headless_chk.get()
+        headless = bool(self.headless_chk.get())
 
         self.is_uploading = True
         self.upload_btn.configure(state="disabled", text="⏳ Uploading in Progress...")
